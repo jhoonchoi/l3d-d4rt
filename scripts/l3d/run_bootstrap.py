@@ -128,9 +128,9 @@ THRESH = {**{f"{c} (ii) rho": (0.3, "ge") for c in CHECKS},
           "Gate 3 median px": (2.0, "le"), "RQ1 disagreement (1 - T), 3D": (0.2, "ge"), "RQ1 depth offset share": (0.5, "ge")}
 
 
-def point_estimates(subset: str) -> dict[str, float]:
+def point_estimates(subset: str, res: Path = RES) -> dict[str, float]:
     """Full-data values from the gate tables (bootstrap uses row subsamples for row statistics)."""
-    load = lambda p: json.loads((RES / p).read_text())  # noqa: E731
+    load = lambda p: json.loads((res / p).read_text())  # noqa: E731
     g1 = load("gate1/gate1.json")
     out = {}
     for c in CHECKS:
@@ -186,13 +186,15 @@ def main() -> None:
     ap.add_argument("--b", type=int, default=1000, help="bootstrap resamples")
     ap.add_argument("--rows", type=int, default=1000, help="row subsample per clip and check")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out", type=Path, default=RES / "bootstrap")
+    ap.add_argument("--results", type=Path, default=RES, help="results root with gate1, a1_decompose, gauge, ...")
+    ap.add_argument("--out", type=Path, default=None, help="default: <results>/bootstrap")
     args = ap.parse_args()
+    args.out = args.out or args.results / "bootstrap"
 
     subsets = args.subsets.split(",")
     start = time.time()
-    a1 = json.loads((RES / "a1_decompose/a1.json").read_text())
-    gauge_path = RES / "gauge/gauge.json"
+    a1 = json.loads((args.results / "a1_decompose/a1.json").read_text())
+    gauge_path = args.results / "gauge/gauge.json"
     gauge_clips = json.loads(gauge_path.read_text())["clips"] if gauge_path.exists() else None
     clips: dict[str, list[dict[str, Any]]] = {s: [] for s in subsets}
     for entry, d in iter_clips(args.dump, subsets, args.limit):
@@ -205,7 +207,7 @@ def main() -> None:
         a1c = a1_ingredients(a1, s)[:n]
         gc = gauge_clips[s][:n] if gauge_clips is not None else None
         stats = statistics(clips[s], a1c, gc)
-        points = point_estimates(s)
+        points = point_estimates(s, args.results)
         rng = np.random.default_rng(args.seed)
         draws = [rng.integers(0, n, size=n) for _ in range(args.b)]
         per_subset[s] = {}

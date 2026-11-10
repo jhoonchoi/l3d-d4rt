@@ -31,6 +31,7 @@ import torch  # noqa: E402
 
 from eval_track3d_in_worldtrack import _compute_average_pts_within_thresh, _compute_scale_factor_global  # noqa: E402
 from l3d.engine import QueryEngine  # noqa: E402
+from l3d.flow3r_engine import Flow3rEngine  # noqa: E402
 from l3d.worldtrack_clip import WorldTrackClip, load_clip  # noqa: E402
 from src.core import build_logger, seed_everything  # noqa: E402
 
@@ -109,6 +110,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--amp", default="none", choices=("none", "bf16", "fp16"), help="CUDA autocast (default off).")
     parser.add_argument("--ckpt-mmap", action="store_true", help="Memory-map the checkpoint (lower peak RAM).")
     parser.add_argument("--overwrite", action="store_true", help="Recompute clips whose table already exists.")
+    parser.add_argument("--model", default="opend4rt", choices=("opend4rt", "flow3r"), help="Which model answers the queries.")
+    parser.add_argument("--flow3r-root", default="third_party/flow3r", help="flow3r clone (scripts/l3d/setup_flow3r.sh).")
+    parser.add_argument("--pair-chunk", type=int, default=8, help="flow3r: frame pairs per flow-head call.")
     parser.add_argument(
         "--fake-model-tiny",
         action="store_true",
@@ -576,15 +580,31 @@ def main(argv: list[str] | None = None) -> int:
     designs = _parse_int_list(args.designs)
     check_designs(designs)
     clip_starts = _parse_int_list(args.clip_start)
-    run_name = args.run_name or (
-        f"fake_tiny_T{int(args.clip_len)}" if args.fake_model_tiny else f"{Path(args.model_config).parent.name}_T{int(args.clip_len)}"
-    )
+    if args.model == "flow3r":
+        default_name = f"flow3r_T{int(args.clip_len)}"
+    elif args.fake_model_tiny:
+        default_name = f"fake_tiny_T{int(args.clip_len)}"
+    else:
+        default_name = f"{Path(args.model_config).parent.name}_T{int(args.clip_len)}"
+    run_name = args.run_name or default_name
     run_dir = Path(args.out_root) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     logger = build_logger("dump_queries", run_dir)
     seed_everything(int(args.seed), deterministic=True)
 
-    if args.fake_model_tiny:
+    if args.model == "flow3r":
+        if not args.ckpt_path:
+            raise ValueError("--ckpt-path is required for --model flow3r (checkpoints/flow3r/flow3r.bin).")
+        engine = Flow3rEngine.from_checkpoint(
+            args.ckpt_path,
+            flow3r_root=args.flow3r_root,
+            device=args.device,
+            amp=None if args.amp == "none" else args.amp,
+            chunk_size=int(args.chunk_size),
+            pair_chunk=int(args.pair_chunk),
+        )
+        model_ckpt = str(args.ckpt_path)
+    elif args.fake_model_tiny:
         engine = QueryEngine.tiny_random(
             args.model_config, clip_frames=int(args.clip_len), device=args.device, chunk_size=int(args.chunk_size), seed=int(args.seed)
         )
