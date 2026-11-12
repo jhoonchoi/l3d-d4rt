@@ -22,3 +22,5 @@ venv/
 .cursorindexingignore
 **/VideoMAE2
 checkpoints/**
+# flow3r code (scripts/l3d/setup_flow3r.sh)
+/third_party/
