@@ -3,7 +3,7 @@
 
 Each clip's ``d0_apd_global`` / ``d0_epe_global`` is the upstream WorldTrack metric
 (``_compute_average_pts_within_thresh``, global median scale) on design-0 rows of that clip
-(frame-0-visible tracks, every target frame, in the target frame's camera). This is the 48-frame-clip
+(frame-0-visible tracks, every target frame, decoded in camera 0: ``q_tc == 0``). This is the 48-frame-clip
 counterpart of Gate 0, not the README's 64-frame protocol.
 
     python scripts/l3d/run_track_apd.py --dump flow3r=output/l3d/dumps/flow3r_T48 \
