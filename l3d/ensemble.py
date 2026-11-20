@@ -56,7 +56,7 @@ KS = (2, 4, 6)
 METHODS = ("b0_model_u2", "b0_gt_u2", "b0c_tstar", "b0c_gt_pose", "b0c_cam0_tstar", "b0c_cam0_gt_pose")
 AGGREGATORS = ("mean", "conf")
 GROUPS = ("all", "static", "dynamic", "query_at_target", "query_elsewhere")
-SUM_KEYS = ("n", "e", "rel", "rel_sq", "apd", "e1", "rel1", "rel1_sq", "apd1", "better")
+SUM_KEYS = ("n", "e", "rel", "rel_sq", "apd", "e1", "rel1", "rel1_sq", "apd1", "better", "dep", "dep1", "ang", "ang1")
 
 
 def conf_weight(logit: np.ndarray) -> np.ndarray:
@@ -67,6 +67,24 @@ def conf_weight(logit: np.ndarray) -> np.ndarray:
 def _apd(e: np.ndarray) -> np.ndarray:
     """Mean over the WorldTrack thresholds of ``e <= th`` (last axis added)."""
     return (np.asarray(e)[..., None] <= np.asarray(THRESHOLDS)).mean(-1)
+
+
+def components(P: np.ndarray, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The A1 split of an output's error: ``|log depth ratio|`` along the GT ray and the
+    image-plane error ``/ |X|`` (outputs behind the camera are clipped at ``1e-3 |X|``)."""
+    dist = np.linalg.norm(X, axis=-1)
+    ray = X / dist[..., None]
+    along = (P * ray).sum(-1)
+    dep = np.abs(np.log(np.maximum(along, 1e-3 * dist) / dist))
+    ang = np.linalg.norm(P - along[..., None] * ray, axis=-1) / dist
+    return dep, ang
+
+
+def weighted_mean(anchor: np.ndarray, O: np.ndarray, wa: np.ndarray, W: np.ndarray, X: np.ndarray) -> np.ndarray:
+    """The B0 estimator: ``(wa a + sum W o) / (wa + sum W)``; ``anchor [s, 3]``, ``O [s, n, k - 1, 3]``,
+    ``wa [s]``, ``W [s, n, k - 1]`` -> ``[s, n, 3]`` (``X`` unused)."""
+    num = wa[:, None, None] * anchor[:, None] + (W[..., None] * O).sum(2)
+    return num / (wa[:, None] + W.sum(2))[..., None]
 
 
 def pad_groups(cell: np.ndarray, n_cells: int, *values: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
@@ -101,14 +119,18 @@ def ensemble_errors(
     ks: tuple[int, ...] = KS,
     w_anchor: np.ndarray | None = None,
     w_others: np.ndarray | None = None,
+    estimator: Any = None,
 ) -> dict[int, dict[str, np.ndarray]]:
     """Error of the ``k``-ensemble (anchor + ``k - 1`` valid others), averaged over all subsets.
 
     ``anchor [C, 3]``, ``others [C, m, 3]``, ``valid [C, m]``, ``X [C, 3]`` (GT in the same
-    camera); weights default to 1. Per ``k``: ``cells`` (indices with at least ``k - 1`` valid
-    others), ``e`` and ``e_sq`` (means over subsets of ``|ensemble - X|`` and its square),
-    ``apd`` (mean over subsets) and ``e1`` (the anchor's own error) on those cells.
+    camera); weights default to 1. ``estimator(anchor, O, wa, W, X) -> [s, n_subsets, 3]``
+    combines each subset (default :func:`weighted_mean`, i.e. B0). Per ``k``: ``cells``
+    (indices with at least ``k - 1`` valid others), ``e`` and ``e_sq`` (means over subsets of
+    ``|ensemble - X|`` and its square), ``apd``, ``dep`` and ``ang`` (:func:`components`; means
+    over subsets) and ``e1``, ``dep1``, ``ang1`` (the anchor's own) on those cells.
     """
+    estimator = weighted_mean if estimator is None else estimator
     anchor = np.asarray(anchor, dtype=np.float64)
     others = np.asarray(others, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)
@@ -121,6 +143,7 @@ def ensemble_errors(
     others = np.take_along_axis(others, order[..., None], 1)
     wo = np.take_along_axis(wo, order, 1)
     e1_all = np.linalg.norm(anchor - X, axis=-1)
+    dep1_all, ang1_all = components(anchor, X)
     out: dict[int, dict[str, np.ndarray]] = {}
     for k in ks:
         parts: list[tuple[np.ndarray, ...]] = []
@@ -131,15 +154,17 @@ def ensemble_errors(
             combos = np.asarray(list(combinations(range(mc), k - 1)), dtype=np.int64).reshape(-1, k - 1)
             O = others[sel][:, combos]  # [s, n_comb, k - 1, 3]
             W = wo[sel][:, combos]  # [s, n_comb, k - 1]
-            num = (wa[sel, None, None] * anchor[sel, None]) + (W[..., None] * O).sum(2)
-            ens = num / (wa[sel, None] + W.sum(2))[..., None]
+            ens = estimator(anchor[sel], O, wa[sel], W, X[sel])
             e = np.linalg.norm(ens - X[sel, None], axis=-1)  # [s, n_comb]
-            parts.append((sel, e.mean(1), (e**2).mean(1), _apd(e).mean(1)))
+            dep, ang = components(ens, X[sel, None])
+            parts.append((sel, e.mean(1), (e**2).mean(1), _apd(e).mean(1), dep.mean(1), ang.mean(1)))
         if parts:
-            cells, e_k, esq_k, apd_k = (np.concatenate([p[i] for p in parts]) for i in range(4))
+            cells, e_k, esq_k, apd_k, dep_k, ang_k = (np.concatenate([p[i] for p in parts]) for i in range(6))
         else:
-            cells, e_k, esq_k, apd_k = np.zeros(0, dtype=np.int64), np.zeros(0), np.zeros(0), np.zeros(0)
-        out[k] = {"cells": cells, "e": e_k, "e_sq": esq_k, "apd": apd_k, "e1": e1_all[cells]}
+            cells = np.zeros(0, dtype=np.int64)
+            e_k, esq_k, apd_k, dep_k, ang_k = (np.zeros(0) for _ in range(5))
+        out[k] = {"cells": cells, "e": e_k, "e_sq": esq_k, "apd": apd_k, "dep": dep_k, "ang": ang_k,
+                  "e1": e1_all[cells], "dep1": dep1_all[cells], "ang1": ang1_all[cells]}
     return out
 
 
@@ -155,10 +180,12 @@ def b0_cells(d: dict[str, Any], scale: float, vis_filter: bool = True) -> dict[s
     if vis_filter:
         keep &= d["p_vis_logit"][parent] > 0  # the model sees the point at t2
     a, b, g = a[keep], b[keep], g[keep]
+    uv = d["p_uv"].astype(np.float64)
+    uv_dist = np.linalg.norm(uv[a] - uv[b], axis=-1) * 255.0  # both outputs' 2D position at t3, px at 256x256
     cells, inv = np.unique(a, return_inverse=True)
-    mask, (Pb, Pg, cb, cg) = pad_groups(inv.reshape(-1), cells.size, P[b], P[g], conf[b], conf[g])
+    mask, (Pb, Pg, cb, cg, ud) = pad_groups(inv.reshape(-1), cells.size, P[b], P[g], conf[b], conf[g], uv_dist)
     return {"anchor": P[cells], "X": X[cells], "w_anchor": conf[cells], "track": d["q_track"][cells].astype(np.int64),
-            "at_target": d["q_ts"][cells] == d["q_tt"][cells],
+            "at_target": d["q_ts"][cells] == d["q_tt"][cells], "uv_dist": ud,
             "valid": mask, "others": {"b0_model_u2": (Pb, cb), "b0_gt_u2": (Pg, cg)}}
 
 
@@ -188,9 +215,10 @@ def ref_pairs(d: dict[str, Any], ref: str = "target") -> tuple[np.ndarray, np.nd
     return ref_rows[pos[hit]], other[hit]
 
 
-def b0c_cells(d: dict[str, Any], scale: float, ref: str = "target", min_points: int = MIN_POINTS) -> dict[str, Any]:
+def b0c_cells(d: dict[str, Any], scale: float, ref: str = "target", min_points: int = MIN_POINTS,
+              with_scale: bool = False) -> dict[str, Any]:
     """B0-C cells of a full table: reference-camera rows (see :func:`ref_pairs`) and the same
-    queries in other cameras, mapped to the reference by ``T*`` and by the GT pose."""
+    queries in other cameras, mapped to the reference by ``T*`` (Sim(3) with ``with_scale``) and by the GT pose."""
     j, i = ref_pairs(d, ref)
     P = d["p_xyz"].astype(np.float64) * scale
     X = d["g_xyz"].astype(np.float64)
@@ -206,7 +234,7 @@ def b0c_cells(d: dict[str, Any], scale: float, ref: str = "target", min_points: 
         for sel in np.split(order, np.flatnonzero(np.diff(pair[order])) + 1):
             if sel.size < min_points:
                 continue
-            s, R, t = geo.umeyama(P[i[sel]], P[j[sel]], with_scale=False)  # camera c -> reference camera
+            s, R, t = geo.umeyama(P[i[sel]], P[j[sel]], with_scale=with_scale)  # camera c -> reference camera
             if np.isfinite(s):
                 mapped_star[sel] = geo.apply_sim3(P[i[sel]], s, R, t)
     T_rel = geo.relative_pose(np.asarray(d["T_w2c_gt"], dtype=np.float64), tc, rc)  # camera c -> reference camera
@@ -218,6 +246,24 @@ def b0c_cells(d: dict[str, Any], scale: float, ref: str = "target", min_points: 
     return {"anchor": P[cells], "X": X[cells], "w_anchor": conf[cells], "track": d["q_track"][cells].astype(np.int64),
             "at_target": d["q_ts"][cells] == d["q_tt"][cells],
             "valid": mask, "others": {f"{prefix}_tstar": (Ms, ci), f"{prefix}_gt_pose": (Mg, ci)}}
+
+
+def add_sums(s: dict[str, float], r: dict[str, np.ndarray], dist: np.ndarray, m: np.ndarray) -> None:
+    """Add the rows ``m`` of one :func:`ensemble_errors` entry ``r`` (``dist = |X|`` of its cells) to ``s``."""
+    e, e1, dm = r["e"][m], r["e1"][m], dist[m]
+    vals = {"n": m.sum(), "e": e.sum(), "rel": (e / dm).sum(), "rel_sq": (r["e_sq"][m] / dm**2).sum(),
+            "apd": r["apd"][m].sum(), "e1": e1.sum(), "rel1": (e1 / dm).sum(),
+            "rel1_sq": ((e1 / dm) ** 2).sum(), "apd1": _apd(e1).sum(), "better": (e < e1).sum(),
+            "dep": r["dep"][m].sum(), "dep1": r["dep1"][m].sum(), "ang": r["ang"][m].sum(), "ang1": r["ang1"][m].sum()}
+    for key, v in vals.items():
+        s[key] += float(v)
+
+
+def group_labels(cells: dict[str, Any], static: np.ndarray) -> dict[str, np.ndarray]:
+    """Boolean masks over a builder's cells for each of :data:`GROUPS`."""
+    st, at = static[cells["track"]], np.asarray(cells["at_target"], dtype=bool)
+    return {"all": np.ones(st.shape, dtype=bool), "static": st, "dynamic": ~st, "query_at_target": at,
+            "query_elsewhere": ~at}
 
 
 def empty_sums(ks: tuple[int, ...] = KS) -> dict[str, Any]:
@@ -234,24 +280,14 @@ def clip_sums(d: dict[str, Any], scale: float | None = None, ks: tuple[int, ...]
     acc = empty_sums(ks)
     for cells in (b0_cells(d, scale, vis_filter), b0c_cells(d, scale, "target"), b0c_cells(d, scale, "cam0")):
         dist = np.linalg.norm(cells["X"], axis=-1)
-        st, at = static[cells["track"]], np.asarray(cells["at_target"], dtype=bool)
-        labels = {"all": np.ones(st.shape, dtype=bool), "static": st, "dynamic": ~st,
-                  "query_at_target": at, "query_elsewhere": ~at}
+        labels = group_labels(cells, static)
         for method, (O, W) in cells["others"].items():
             for agg in AGGREGATORS:
                 wa, wo = (None, None) if agg == "mean" else (cells["w_anchor"], W)
                 res = ensemble_errors(cells["anchor"], O, cells["valid"], cells["X"], ks, wa, wo)
                 for k, r in res.items():
-                    dd = dist[r["cells"]]
                     for group, lab in labels.items():
-                        m = lab[r["cells"]]
-                        e, e1, dm = r["e"][m], r["e1"][m], dd[m]
-                        vals = {"n": m.sum(), "e": e.sum(), "rel": (e / dm).sum(), "rel_sq": (r["e_sq"][m] / dm**2).sum(),
-                                "apd": r["apd"][m].sum(), "e1": e1.sum(), "rel1": (e1 / dm).sum(),
-                                "rel1_sq": ((e1 / dm) ** 2).sum(), "apd1": _apd(e1).sum(), "better": (e < e1).sum()}
-                        s = acc[method][agg][group][k]
-                        for key, v in vals.items():
-                            s[key] += float(v)
+                        add_sums(acc[method][agg][group][k], r, dist[r["cells"]], lab[r["cells"]])
     return acc
 
 
@@ -281,7 +317,11 @@ def summarize_cell(s: dict[str, float]) -> dict[str, float]:
             "apd": r(s["apd"]), "apd_1": r(s["apd1"]),
             "gain": 1.0 - rel / rel1 if ok else float("nan"),
             "gain_mse": 1.0 - s["rel_sq"] / s["rel1_sq"] if ok and s["rel1_sq"] > 0 else float("nan"),
-            "frac_better": r(s["better"])}
+            "frac_better": r(s["better"]),
+            "dep": r(s.get("dep", float("nan"))), "dep_1": r(s.get("dep1", float("nan"))),
+            "ang": r(s.get("ang", float("nan"))), "ang_1": r(s.get("ang1", float("nan"))),
+            "gain_dep": 1.0 - s["dep"] / s["dep1"] if ok and s.get("dep1", 0) > 0 else float("nan"),
+            "gain_ang": 1.0 - s["ang"] / s["ang1"] if ok and s.get("ang1", 0) > 0 else float("nan")}
 
 
 def bootstrap_gain(rel: np.ndarray, rel1: np.ndarray, n_boot: int = 1000, seed: int = 0) -> tuple[float, float]:

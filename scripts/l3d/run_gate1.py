@@ -35,6 +35,7 @@ LOSS_CHECKS = {
     "ray_center": ("ray_center_se3", "ray_center"),
 }
 RHO_MIN, SHARE_MIN, RATIO_MIN = 0.3, 0.2, 0.2
+SENSITIVITY = {"lenient": (0.2, 0.1, 0.1), "default": (RHO_MIN, SHARE_MIN, RATIO_MIN), "strict": (0.4, 0.3, 0.3)}
 
 
 def a2_pass(a2: dict[str, Any], column: str) -> tuple[bool, list[str]]:
@@ -101,6 +102,24 @@ def write_md(g: dict[str, Any], path: Path, label: str = "OpenD4RT 48CLIP") -> N
             lines.append(f"| {check.replace('_', ' ')} | `{s}` | {yn(p['i'])} | {fmt(v['rho'])} ({yn(p['ii'])}) | "
                          f"{fmt(v['visible'])} ({yn(p['iii'])}) | {fmt(v['ratio'], 2)} ({yn(p['iv'])}) | "
                          f"{'**yes**' if v['loss'] else 'no'} |")
+    lines += ["", "## Threshold sensitivity", "",
+              "Loss verdict if the (ii) / (iii) / (iv) thresholds move (lenient: 0.2 / 10% / 10%; strict: 0.4 / 30% / "
+              "30%), and the binding criterion: the one furthest below (or closest to) its default threshold, as "
+              "value / threshold.", "",
+              "| Check | Subset | Lenient | Default | Strict | Binding criterion |",
+              "| --- | --- | --- | --- | --- | --- |"]
+    for check in LOSS_CHECKS:
+        c = g[check]
+        for s, v in c["subsets"].items():
+            vals = (v["rho"], v["visible"], v["ratio"])
+            verdict = {}
+            for name, th in SENSITIVITY.items():
+                verdict[name] = bool(v["passes"]["i"]) and all(x is not None and x >= t for x, t in zip(vals, th))
+            margins = {k: (x / t if x is not None else float("-inf")) for k, x, t in
+                       zip(("(ii) rho", "(iii) visible", "(iv) ratio"), vals, SENSITIVITY["default"])}
+            bind = min(margins, key=margins.get)
+            lines.append(f"| {check.replace('_', ' ')} | `{s}` | " + " | ".join(
+                "**yes**" if verdict[n] else "no" for n in SENSITIVITY) + f" | {bind} ({margins[bind]:.2f}x) |")
     lines += ["", "A2 misses (cells Table 1 marks Yes where the check did not respond):", ""]
     for check in LOSS_CHECKS:
         misses = g[check]["a2_misses"]
