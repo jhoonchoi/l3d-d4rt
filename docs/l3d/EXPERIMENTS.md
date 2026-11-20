@@ -21,6 +21,10 @@ scipy, pytest, modal, huggingface_hub, gdown). Run tests with
 | A3 | T/S/C split (two-way ANOVA over source x camera frames), S share vs `abs(t_s - t_t)`; Spearman, AUROC, risk-coverage per check vs native confidence | CPU, on dumped tables | `l3d/tsc.py`, `l3d/detection.py`, `l3d/check_rows.py`, `scripts/l3d/run_a3_tsc.py`, `scripts/l3d/run_a3_detection.py` |
 | A4 | Pose baselines: Umeyama, confidence-weighted Umeyama, ray center (adt_mini, po_mini, ds_mini have GT poses; pstudio_mini is a fixed camera) | CPU, on dumped tables | `l3d/checks.py`, `l3d/geometry.py`, `l3d/check_rows.py`, `scripts/l3d/run_a4_pose.py` |
 | B | WorldTrack baselines: OpenD4RT vs ARROW vs TrackEverything on the same queries, under the Gate 0 rule and ARROW's in-image rule | GPU (each model in its own env); scoring on CPU with WorldTrack data | `scripts/l3d/run_opend4rt_worldtrack_preds.py`, `run_arrow_worldtrack_ourqueries.py`, `run_trackeverything_worldtrack.py`, `score_worldtrack_preds.py`, `run_baselines_table.py`; result `results/l3d/baselines/` |
+| B0 | Part B baselines B0 / B0-C: test-time ensembling over k source frames (model or GT `u2`) and over k camera frames (mapped by `T*` or GT pose), k = 2, 4, 6 from the existing dump | CPU, on dumped tables (k = 8 needs a new dump) | `l3d/ensemble.py`, `scripts/l3d/run_b0.py`; result `results/l3d/b0/` |
+| T0 | Part B T0: training-free optimization of the outputs with each loss check (source swap, camera swap, ray center) plus a proximity term, against B0 / B0-C at matched k (Gate 2); B0 estimator and partner-set ablations | CPU, on dumped tables | `l3d/t0.py`, `scripts/l3d/run_t0.py`; result `results/l3d/t0/` |
+| A3c | RQ2: each check residual combined with the native confidence (rank average, cross-validated logistic), partial Spearman given confidence | CPU, on dumped tables | `scripts/l3d/run_a3_combined.py`; result `results/l3d/a3_combined/` |
+| A4r | RQ3's pose prediction at test time: `T*` refitted with outlier rejection (trim, IRLS, exp(conf) weights) vs an oracle trim by GT error | CPU, on dumped tables | `l3d/pose_robust.py`, `scripts/l3d/run_a4_robust.py`; result `results/l3d/a4_robust/` |
 
 ## 2. Conventions
 
@@ -106,6 +110,15 @@ Arrays not listed as optional are required. `M` queries, `N` tracks, `T` frames.
 - Splits by GT visibility (at `t_t`), motion (`is_static`) and parallax (angle at the GT point between cameras
   `t_s` and `t_t`; bins 0-1, 1-5, >= 5 degrees): `l3d/splits.py`, `scripts/l3d/run_splits.py` -> `results/l3d/splits/`
   (tracking APD/EPE, self-frame depth share and T/S/C shares per bin).
+- B0 / B0-C (`l3d/ensemble.py`, `scripts/l3d/run_b0.py` -> `results/l3d/b0/`): each ensemble averages the query's
+  output with `k - 1` of the dump's other source (design 5 / design 1) or camera (design 1) outputs, averaged over
+  every subset of them, and is compared with the single output on the same cells; B0-C references camera `t_t`
+  (self-frame) or camera 0 (world). Confidence weighting uses `exp(logit)`: the released model's
+  `sigmoid(confidence)` is 0.9998-1 everywhere (logits 7.5-12).
+- T0 (`l3d/t0.py`, `scripts/l3d/run_t0.py` -> `results/l3d/t0/`): on the B0 / B0-C cells, minimizes
+  `sum_j rho(|a - b_j| / z) + lam/2 (|a - a0|^2 + sum_j |b_j - b0_j|^2) / z^2` with `u2` and `T*` fixed (closed form per
+  cell; IRLS for Huber / Cauchy), plus the ray-center variant on camera-0 outputs; the penalty and `lam` are chosen by
+  2-fold CV over clips. Per-clip sums are cached in `output/l3d/t0/per_clip.pkl` (`--from-cache` re-renders).
 - Report headers name the model from the dump manifest's `run_name` (`l3d.report.model_label`); every runner takes
   `--model-label` to override it (e.g. for another model's dump).
 - WorldTrack baselines: each model saves `<subset>/<seq>.npz` (`pred_tracks_ref0`, `query_uv`) under

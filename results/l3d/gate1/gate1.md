@@ -23,6 +23,25 @@ Caveat: the proposal asks for (iv) on training data; these are eval clips.
 | ray center | `pstudio_mini` | **pass** | 0.096 (fail) | 0.337 (**pass**) | 0.64 (**pass**) | no |
 | ray center | `ds_mini` | **pass** | 0.337 (**pass**) | 0.158 (fail) | 1.79 (**pass**) | no |
 
+## Threshold sensitivity
+
+Loss verdict if the (ii) / (iii) / (iv) thresholds move (lenient: 0.2 / 10% / 10%; strict: 0.4 / 30% / 30%), and the binding criterion: the one furthest below (or closest to) its default threshold, as value / threshold.
+
+| Check | Subset | Lenient | Default | Strict | Binding criterion |
+| --- | --- | --- | --- | --- | --- |
+| source swap | `adt_mini` | no | no | no | (iii) visible (0.23x) |
+| source swap | `po_mini` | **yes** | no | no | (iv) ratio (0.91x) |
+| source swap | `pstudio_mini` | **yes** | no | no | (iii) visible (0.92x) |
+| source swap | `ds_mini` | **yes** | no | no | (iii) visible (0.58x) |
+| camera swap | `adt_mini` | no | no | no | (iii) visible (0.11x) |
+| camera swap | `po_mini` | **yes** | **yes** | no | (iii) visible (1.36x) |
+| camera swap | `pstudio_mini` | **yes** | no | no | (iii) visible (0.63x) |
+| camera swap | `ds_mini` | **yes** | **yes** | **yes** | (ii) rho (3.01x) |
+| ray center | `adt_mini` | no | no | no | (ii) rho (0.45x) |
+| ray center | `po_mini` | no | no | no | (ii) rho (0.17x) |
+| ray center | `pstudio_mini` | no | no | no | (ii) rho (0.32x) |
+| ray center | `ds_mini` | **yes** | no | no | (iii) visible (0.79x) |
+
 A2 misses (cells Table 1 marks Yes where the check did not respond):
 
 - source swap: none
