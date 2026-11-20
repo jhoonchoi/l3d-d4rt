@@ -1,0 +1,122 @@
+[
+ {
+  "clip": 4,
+  "subset": "adt_mini",
+  "sequence": "Apartment_release_clean_seq135_7",
+  "why": [
+   "all models fail (best APD 0.48)"
+  ],
+  "apd": {
+   "opend4rt": 0.4774771866391185,
+   "flow3r": 0.4804149449035813
+  }
+ },
+ {
+  "clip": 5,
+  "subset": "adt_mini",
+  "sequence": "Apartment_release_clean_seq136_6",
+  "why": [
+   "flow3r \u226b OpenD4RT (\u0394 +0.41)"
+  ],
+  "apd": {
+   "opend4rt": 0.41740806642941874,
+   "flow3r": 0.8237136714116251
+  }
+ },
+ {
+  "clip": 21,
+  "subset": "adt_mini",
+  "sequence": "Apartment_release_decoration_seq133_3",
+  "why": [
+   "flow3r \u226b OpenD4RT (\u0394 +0.40)"
+  ],
+  "apd": {
+   "opend4rt": 0.3536931818181818,
+   "flow3r": 0.7525252525252525
+  }
+ },
+ {
+  "clip": 42,
+  "subset": "adt_mini",
+  "sequence": "Apartment_release_meal_seq132_2",
+  "why": [
+   "flow3r \u226b OpenD4RT (\u0394 +0.38)"
+  ],
+  "apd": {
+   "opend4rt": 0.4892074742268041,
+   "flow3r": 0.8689594072164949
+  }
+ },
+ {
+  "clip": 99,
+  "subset": "pstudio_mini",
+  "sequence": "basketball_13",
+  "why": [
+   "all models fail (best APD 0.43)"
+  ],
+  "apd": {
+   "opend4rt": 0.42916666666666664,
+   "flow3r": 0.1621875
+  }
+ },
+ {
+  "clip": 123,
+  "subset": "pstudio_mini",
+  "sequence": "football_21",
+  "why": [
+   "OpenD4RT \u226b flow3r (\u0394 +0.77)"
+  ],
+  "apd": {
+   "opend4rt": 0.9025621118012422,
+   "flow3r": 0.13344332298136646
+  }
+ },
+ {
+  "clip": 126,
+  "subset": "pstudio_mini",
+  "sequence": "football_3",
+  "why": [
+   "random reference"
+  ],
+  "apd": {
+   "opend4rt": 0.7535837155963303,
+   "flow3r": 0.6022075688073395
+  }
+ },
+ {
+  "clip": 135,
+  "subset": "pstudio_mini",
+  "sequence": "softball_19",
+  "why": [
+   "OpenD4RT \u226b flow3r (\u0394 +0.67)"
+  ],
+  "apd": {
+   "opend4rt": 0.9356770833333333,
+   "flow3r": 0.26735026041666665
+  }
+ },
+ {
+  "clip": 136,
+  "subset": "pstudio_mini",
+  "sequence": "softball_21",
+  "why": [
+   "OpenD4RT \u226b flow3r (\u0394 +0.80)"
+  ],
+  "apd": {
+   "opend4rt": 0.9288015463917526,
+   "flow3r": 0.1248389175257732
+  }
+ },
+ {
+  "clip": 168,
+  "subset": "ds_mini",
+  "sequence": "6fae75-3_obj_source_left_1",
+  "why": [
+   "random reference"
+  ],
+  "apd": {
+   "opend4rt": 0.7869628442545109,
+   "flow3r": 0.692886396011396
+  }
+ }
+]

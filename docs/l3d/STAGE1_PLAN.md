@@ -1,6 +1,7 @@
 # Stage 1: how 4D reconstruction models differ, point by point
 
-Status: plan, 2026-11-20. Owner: Jaehoon (with Alicia). Builds on Part A (`docs/l3d/EXPERIMENTS.md`),
+Status: 2026-11-20, Phase 0 and Q1–Q3 done for OpenD4RT and flow3r; Q4 partly done. Results, findings and
+deviations from this plan: `results/l3d_compare/README.md`. Owner: Jaehoon (with Alicia). Builds on Part A (`docs/l3d/EXPERIMENTS.md`),
 `results/l3d/baselines/` and `results/l3d_flow3r/`.
 
 ## 0. Purpose
