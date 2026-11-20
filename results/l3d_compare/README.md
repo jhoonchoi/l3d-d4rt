@@ -1,7 +1,7 @@
 # Stage 1 results: OpenD4RT vs flow3r, point by point
 
 Plan: `docs/l3d/STAGE1_PLAN.md`. Status 2026-11-20: Phase 0 and Q1–Q3 done for the two Tier B models; Q4 has
-the clip selection and figures, but no video overlays yet. ARROW and TrackEverything (Pi3) join when their raw
+the clip selection, figures and RGB overlays, but no failure tags yet. ARROW and TrackEverything (Pi3) join when their raw
 predictions arrive (dependency D1).
 
 | File | Content |
@@ -9,7 +9,8 @@ predictions arrive (dependency D1).
 | `q1_complementarity.md`, `q1_oracle_*.png` | Q1: error correlation, failure overlap, oracle headroom, H1 check |
 | `q2_conditions.md`, `q2_winrate_*.png` | Q2: accuracy and win rate per condition bin, regression, fixed-camera test |
 | `q3_error_type.md`, `q3_tierA.png`, `q3_tierB.png` | Q3: Tier A (gauge/offset/jitter/residual) and Tier B (depth/image-plane/pose) error parts |
-| `gallery/` | Q4: 10 selected clips, per-clip figures, empty failure-tag table |
+| `gallery/` | Q4: 10 selected clips, per-clip figures, RGB overlays (`rgb_*.jpg`), empty failure-tag table |
+| `focal_t0.md` | Exploratory: field-of-view error of each model at the query frame (finding 7) |
 | `*.json` | All numbers behind the reports |
 
 Reproduce (CPU, about 3 minutes in total, needs the two local dumps):
@@ -19,6 +20,9 @@ python scripts/l3d/build_point_table.py --dump opend4rt=output/l3d/dumps/flow3r_
     --dump flow3r=output/l3d/dumps/flow3r_T48 --out output/l3d/compare
 python scripts/l3d/run_compare.py --points output/l3d/compare --out results/l3d_compare
 python scripts/l3d/run_gallery.py --points output/l3d/compare --out results/l3d_compare/gallery
+python scripts/l3d/run_focal_check.py --points output/l3d/compare --dump output/l3d/dumps/flow3r_T48
+# needs the 10 gallery clips in data/worldtrack_release/ (about 240 MB):
+python scripts/l3d/render_gallery.py --points output/l3d/compare --gallery results/l3d_compare/gallery
 ```
 
 ## Data and checks (Phase 0)
@@ -67,6 +71,25 @@ depth and image-plane).
 0.25–0.97. flow3r's static error is more global than OpenD4RT's: its gauge share is 0.81 on `po_mini` and 0.57 on
 `ds_mini`, against 0.47 and 0.27 for OpenD4RT. So a few anchors would correct more of flow3r's static error.
 
+**7. Some "depth" error is a wrong field of view (exploratory, from the gallery).** The RGB overlays show
+model points that are off their GT pixel already at `t = 0`, where a pure depth error would project onto the
+GT pixel. Projected with the GT intrinsics, the models' points at `t = 0` give these focal-length ratios
+(`focal_t0.md`; ratio > 1 = the model's focal length is too short):
+
+| Subset | Model | Ratio x | Ratio y | 2D offset at t = 0 (px) |
+| --- | --- | ---: | ---: | ---: |
+| `pstudio_mini` | flow3r | **1.16** | **1.18** | 10.4 |
+| `adt_mini` | OpenD4RT | 1.04 | **0.87** | 6.3 |
+| other cells | both | 0.97–1.02 | 0.97–1.01 | 0.6–2.8 |
+
+- **flow3r on `pstudio_mini`** has a field of view that is too wide by about 16–18% (90th percentile over clips:
+  48%). With one median scale per clip, a wrong focal length also moves points along the ray, so part of
+  flow3r's "depth" error on `pstudio_mini` can come from its intrinsics.
+- **OpenD4RT on `adt_mini`** has a vertical-only error (`fy` about 13% off, `fx` about right). This looks like an
+  aspect-ratio or intrinsics problem in how the clips reach the model. `main` has an upstream commit about the
+  native aspect ratio (`855894b`); whether our OpenD4RT dumps include that fix is not checked yet. Treat this as a
+  lead for Alicia, not a result.
+
 ## Hypotheses (stated in advance)
 
 | Hypothesis | Verdict | Evidence |
@@ -98,12 +121,18 @@ depth and image-plane).
   over all units let a few huge errors control the Sim(3), which gave negative gauge shares on subsets.
 - **Fixed-camera test.** It uses the 14 still-camera `po_mini` clips found in the data, which is a direct
   within-subset test, instead of only bins of camera motion.
-- **Added cuts** (exploratory): units with a correct pixel (Q3), and APD at `t = 0` (finding 4).
+- **Added cuts** (exploratory): units with a correct pixel (Q3), APD at `t = 0` (finding 4), and the field-of-view
+  check (finding 7).
+- **Gallery overlays** project every model's camera-0 point with the GT pose and intrinsics, so they show 3D error
+  (including field of view), not the model's own 2D prediction.
 
 ## Next steps
 
 1. **D1:** ARROW and TrackEverything (Pi3) raw predictions from Alicia (`output/l3d/baselines/`). Then the
    context-length control, and Q1–Q3 for all four models.
-2. **Q4 videos:** download the RGB frames of the 10 gallery clips, render overlays, and tag failures (two people).
-3. **Per-frame scale:** test whether flow3r's depth error is a per-frame scale change (fit a scale per frame and
+2. **Q4 tags:** two people tag the failures in `gallery/index.md` on their own (the overlays and MP4s are ready;
+   MP4s are in `output/l3d/compare/gallery_videos/`, not committed).
+3. **Intrinsics:** check whether OpenD4RT's vertical error on `adt_mini` comes from the input aspect ratio
+   (compare with `855894b`), and how much of flow3r's `pstudio_mini` deficit remains after a per-clip focal-length fit.
+4. **Per-frame scale:** test whether flow3r's depth error is a per-frame scale change (fit a scale per frame and
    compare). The `softball_21` figure suggests so.

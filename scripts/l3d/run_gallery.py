@@ -118,15 +118,17 @@ def main() -> None:
     L = ["# Q4: failure gallery", "",
          "Clips chosen by the rule in `docs/l3d/STAGE1_PLAN.md` (section 4.4), from the clip APDs of the point table. "
          "Each figure: per-frame APD of every model (left) and a top-down view (x-z in camera 0, after the median scale) "
-         "of up to 8 random dynamic tracks (right). Video overlays need the RGB frames of these clips (not downloaded yet).", "",
-         "| # | Subset | Sequence | Why chosen | " + " | ".join(f"APD {LABEL.get(m, m)}" for m in models) + " | Figure |",
-         "| ---: | --- | --- | --- | " + " | ".join("---:" for _ in models) + " | --- |"]
+         "of up to 8 random dynamic tracks (right).", "",
+         "RGB overlays (`rgb_*.jpg`, frames 0/16/32/47) and MP4s come from `scripts/l3d/render_gallery.py`, which needs the "
+         "clips' WorldTrack npz files; the MP4s are not committed.", "",
+         "| # | Subset | Sequence | Why chosen | " + " | ".join(f"APD {LABEL.get(m, m)}" for m in models) + " | Figure | RGB overlay |",
+         "| ---: | --- | --- | --- | " + " | ".join("---:" for _ in models) + " | --- | --- |"]
     for i, c in enumerate(chosen, 1):
         name = f"{i:02d}_{c['subset']}_{c['sequence']}.png"
         title = f"{c['subset']}/{c['sequence']} — " + "; ".join(c["why"])
         clip_figure(pts[c["subset"]], c["clip"], models, title, args.out / name)
         L.append(f"| {i} | `{c['subset']}` | `{c['sequence']}` | {'; '.join(c['why'])} | "
-                 + " | ".join(f"{c['apd'][m]:.3f}" for m in models) + f" | [{name}]({name}) |")
+                 + " | ".join(f"{c['apd'][m]:.3f}" for m in models) + f" | [{name}]({name}) | [rgb_{name[:-4]}.jpg](rgb_{name[:-4]}.jpg) |")
     L += ["", "## Failure tags (fill in independently, then compare)", "",
           "Tags: " + ", ".join(f"`{t}`" for t in TAGS) + ". Fix the list after the first 5 clips.", "",
           "| # | Sequence | Model | Tags (Jaehoon) | Tags (Alicia) | Notes |", "| ---: | --- | --- | --- | --- | --- |"]
